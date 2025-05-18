@@ -1,0 +1,1 @@
+Ionic + Vue + Capacitor + Pinia + NFC + Vite

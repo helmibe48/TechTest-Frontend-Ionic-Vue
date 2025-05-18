@@ -1,11 +1,11 @@
 <template>
   <ion-app>
     <ion-split-pane content-id="main-content">
-      <ion-menu content-id="main-content" type="overlay">
+      <ion-menu content-id="main-content" type="overlay" v-if="authStore.isAuthenticated">
         <ion-content>
-          <ion-list id="inbox-list">
-            <ion-list-header>Inbox</ion-list-header>
-            <ion-note>hi@ionicframework.com</ion-note>
+          <ion-list id="main-list">
+            <ion-list-header>Technical Test</ion-list-header>
+            <ion-note v-if="authStore.user">{{ authStore.user.email }}</ion-note>
 
             <ion-menu-toggle :auto-hide="false" v-for="(p, i) in appPages" :key="i">
               <ion-item @click="selectedIndex = i" router-direction="root" :router-link="p.url" lines="none" :detail="false" class="hydrated" :class="{ selected: selectedIndex === i }">
@@ -13,15 +13,6 @@
                 <ion-label>{{ p.title }}</ion-label>
               </ion-item>
             </ion-menu-toggle>
-          </ion-list>
-
-          <ion-list id="labels-list">
-            <ion-list-header>Labels</ion-list-header>
-
-            <ion-item v-for="(label, index) in labels" lines="none" :key="index">
-              <ion-icon aria-hidden="true" slot="start" :ios="bookmarkOutline" :md="bookmarkSharp"></ion-icon>
-              <ion-label>{{ label }}</ion-label>
-            </ion-item>
           </ion-list>
         </ion-content>
       </ion-menu>
@@ -45,69 +36,56 @@ import {
   IonRouterOutlet,
   IonSplitPane,
 } from '@ionic/vue';
-import { ref } from 'vue';
+import { ref, onMounted, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import {
-  archiveOutline,
-  archiveSharp,
-  bookmarkOutline,
-  bookmarkSharp,
-  heartOutline,
-  heartSharp,
-  mailOutline,
-  mailSharp,
-  paperPlaneOutline,
-  paperPlaneSharp,
-  trashOutline,
-  trashSharp,
-  warningOutline,
-  warningSharp,
+  gridOutline,
+  gridSharp,
+  personOutline,
+  personSharp,
+  logOutOutline,
+  logOutSharp,
 } from 'ionicons/icons';
+import { useAuthStore } from './stores/auth';
 
+const router = useRouter();
+const authStore = useAuthStore();
 const selectedIndex = ref(0);
+
 const appPages = [
   {
-    title: 'Inbox',
-    url: '/folder/Inbox',
-    iosIcon: mailOutline,
-    mdIcon: mailSharp,
+    title: 'Data Table',
+    url: '/table',
+    iosIcon: gridOutline,
+    mdIcon: gridSharp,
   },
   {
-    title: 'Outbox',
-    url: '/folder/Outbox',
-    iosIcon: paperPlaneOutline,
-    mdIcon: paperPlaneSharp,
-  },
-  {
-    title: 'Favorites',
-    url: '/folder/Favorites',
-    iosIcon: heartOutline,
-    mdIcon: heartSharp,
-  },
-  {
-    title: 'Archived',
-    url: '/folder/Archived',
-    iosIcon: archiveOutline,
-    mdIcon: archiveSharp,
-  },
-  {
-    title: 'Trash',
-    url: '/folder/Trash',
-    iosIcon: trashOutline,
-    mdIcon: trashSharp,
-  },
-  {
-    title: 'Spam',
-    url: '/folder/Spam',
-    iosIcon: warningOutline,
-    mdIcon: warningSharp,
+    title: 'Profile',
+    url: '/profile',
+    iosIcon: personOutline,
+    mdIcon: personSharp,
   },
 ];
-const labels = ['Family', 'Friends', 'Notes', 'Work', 'Travel', 'Reminders'];
 
-const path = window.location.pathname.split('folder/')[1];
-if (path !== undefined) {
-  selectedIndex.value = appPages.findIndex((page) => page.title.toLowerCase() === path.toLowerCase());
-}
+// Update selected index based on current route
+onMounted(() => {
+  const path = window.location.pathname;
+  const matchedPage = appPages.find(page => path.includes(page.url));
+  if (matchedPage) {
+    selectedIndex.value = appPages.indexOf(matchedPage);
+  }
+});
+
+// Watch for route changes to update selected index
+watch(
+  () => router.currentRoute.value.path,
+  (path) => {
+    const matchedPage = appPages.find(page => path.includes(page.url));
+    if (matchedPage) {
+      selectedIndex.value = appPages.indexOf(matchedPage);
+    }
+  }
+);
 </script>
 
 <style scoped>
@@ -135,25 +113,14 @@ ion-menu.md ion-note {
   padding-left: 10px;
 }
 
-ion-menu.md ion-list#inbox-list {
+ion-menu.md ion-list#main-list {
   border-bottom: 1px solid var(--ion-background-color-step-150, #d7d8da);
 }
 
-ion-menu.md ion-list#inbox-list ion-list-header {
+ion-menu.md ion-list#main-list ion-list-header {
   font-size: 22px;
   font-weight: 600;
-
   min-height: 20px;
-}
-
-ion-menu.md ion-list#labels-list ion-list-header {
-  font-size: 16px;
-
-  margin-bottom: 18px;
-
-  color: #757575;
-
-  min-height: 26px;
 }
 
 ion-menu.md ion-item {
@@ -206,10 +173,6 @@ ion-menu.ios ion-item ion-icon {
   color: #73849a;
 }
 
-ion-menu.ios ion-list#labels-list ion-list-header {
-  margin-bottom: 8px;
-}
-
 ion-menu.ios ion-list-header,
 ion-menu.ios ion-note {
   padding-left: 16px;
@@ -223,7 +186,6 @@ ion-menu.ios ion-note {
 ion-note {
   display: inline-block;
   font-size: 16px;
-
   color: var(--ion-color-medium-shade);
 }
 

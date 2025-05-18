@@ -4,11 +4,19 @@ import { RouteRecordRaw } from 'vue-router';
 const routes: Array<RouteRecordRaw> = [
   {
     path: '',
-    redirect: '/folder/Inbox'
+    redirect: '/login'
   },
   {
-    path: '/folder/:id',
-    component: () => import ('../views/FolderPage.vue')
+    path: '/login',
+    component: () => import('../views/auth/LoginPage.vue')
+  },
+  {
+    path: '/register',
+    component: () => import('../views/auth/RegisterPage.vue')
+  },
+  {
+    path: '/table',
+    component: () => import('../views/TablePage.vue')
   }
 ]
 
