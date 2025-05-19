@@ -17,10 +17,11 @@
     <ion-content class="ion-padding">
       <!-- Search Bar -->
       <ion-searchbar
-        v-model="tableStore.searchQuery"
-        placeholder="Search users..."
+        v-model="searchInput"
+        placeholder="Search transactions..."
         animated
         @ionInput="onSearchChange"
+        :debounce="500"
       ></ion-searchbar>
 
       <!-- NFC Button -->
@@ -33,7 +34,7 @@
           <ion-icon :icon="nfcStore.isNfcEnabled ? closeCircleOutline : wifiOutline" slot="start"></ion-icon>
           {{ nfcStore.isNfcEnabled ? 'Disable NFC' : 'Enable NFC' }}
         </ion-button>
-        <ion-badge color="medium" class="ion-margin-start">{{ nfcStore.nfcStatus }}</ion-badge>
+        <ion-badge :color="getNfcStatusColor(nfcStore.nfcStatus)" class="ion-margin-start">{{ nfcStore.nfcStatus }}</ion-badge>
       </div>
 
       <!-- NFC Tag Info (when available) -->
@@ -43,13 +44,34 @@
           <ion-card-title>ID: {{ nfcStore.lastTagRead.id }}</ion-card-title>
         </ion-card-header>
         <ion-card-content>
-          <p><strong>Time:</strong> {{ formatDate(nfcStore.lastTagRead.timestamp) }}</p>
-          <p><strong>Data:</strong> {{ nfcStore.lastTagRead.data }}</p>
+          <p><strong>Time:</strong> {{ tableStore.formatDate(nfcStore.lastTagRead.timestamp) }}</p>
+          <p><strong>Type:</strong> {{ nfcStore.lastTagRead.type }}</p>
+          <div v-if="nfcStore.errorMessage" class="error-message">
+            <p><strong>Error:</strong> {{ nfcStore.errorMessage }}</p>
+          </div>
+          <!-- Write to tag section removed as it's not supported by the library -->
+        </ion-card-content>
+      </ion-card>
+
+      <!-- Loading State -->
+      <div v-if="tableStore.isLoading" class="loading-state">
+        <ion-spinner name="circular"></ion-spinner>
+        <p>Loading transactions...</p>
+      </div>
+
+      <!-- Error State -->
+      <ion-card v-else-if="tableStore.error" class="error-state">
+        <ion-card-header>
+          <ion-card-title>Error</ion-card-title>
+        </ion-card-header>
+        <ion-card-content>
+          <p>{{ tableStore.error }}</p>
+          <ion-button @click="fetchTransactions" class="ion-margin-top">Retry</ion-button>
         </ion-card-content>
       </ion-card>
 
       <!-- Responsive Table -->
-      <div class="table-container">
+      <div v-else class="table-container">
         <table class="data-table">
           <thead>
             <tr>
@@ -61,18 +83,26 @@
                   size="small"
                 ></ion-icon>
               </th>
-              <th @click="sortTable('name')" class="sortable">
-                Name
+              <th @click="sortTable('user.name')" class="sortable">
+                User
                 <ion-icon
-                  v-if="tableStore.sortBy === 'name'"
+                  v-if="tableStore.sortBy === 'user.name'"
                   :icon="tableStore.sortDirection === 'asc' ? arrowUpOutline : arrowDownOutline"
                   size="small"
                 ></ion-icon>
               </th>
-              <th @click="sortTable('email')" class="sortable">
-                Email
+              <th @click="sortTable('amount')" class="sortable">
+                Amount
                 <ion-icon
-                  v-if="tableStore.sortBy === 'email'"
+                  v-if="tableStore.sortBy === 'amount'"
+                  :icon="tableStore.sortDirection === 'asc' ? arrowUpOutline : arrowDownOutline"
+                  size="small"
+                ></ion-icon>
+              </th>
+              <th @click="sortTable('transaction_type')" class="sortable">
+                Type
+                <ion-icon
+                  v-if="tableStore.sortBy === 'transaction_type'"
                   :icon="tableStore.sortDirection === 'asc' ? arrowUpOutline : arrowDownOutline"
                   size="small"
                 ></ion-icon>
@@ -85,18 +115,18 @@
                   size="small"
                 ></ion-icon>
               </th>
-              <th @click="sortTable('role')" class="sortable">
-                Role
+              <th @click="sortTable('nfc_tag_id')" class="sortable">
+                NFC Tag
                 <ion-icon
-                  v-if="tableStore.sortBy === 'role'"
+                  v-if="tableStore.sortBy === 'nfc_tag_id'"
                   :icon="tableStore.sortDirection === 'asc' ? arrowUpOutline : arrowDownOutline"
                   size="small"
                 ></ion-icon>
               </th>
-              <th @click="sortTable('createdAt')" class="sortable">
+              <th @click="sortTable('created_at')" class="sortable">
                 Created
                 <ion-icon
-                  v-if="tableStore.sortBy === 'createdAt'"
+                  v-if="tableStore.sortBy === 'created_at'"
                   :icon="tableStore.sortDirection === 'asc' ? arrowUpOutline : arrowDownOutline"
                   size="small"
                 ></ion-icon>
@@ -104,31 +134,37 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="item in tableStore.paginatedItems" :key="item.id">
-              <td>{{ item.id }}</td>
-              <td>{{ item.name }}</td>
-              <td>{{ item.email }}</td>
+            <tr v-for="transaction in tableStore.transactions" :key="transaction.id">
+              <td>{{ transaction.id }}</td>
+              <td>{{ transaction.user?.name || 'Unknown' }}</td>
+              <td>{{ formatCurrency(transaction.amount) }}</td>
+              <td>{{ transaction.transaction_type }}</td>
               <td>
-                <ion-badge :color="item.status === 'Active' ? 'success' : 'medium'">
-                  {{ item.status }}
+                <ion-badge :color="getStatusColor(transaction.status)">
+                  {{ transaction.status }}
                 </ion-badge>
               </td>
-              <td>{{ item.role }}</td>
-              <td>{{ formatDate(item.createdAt) }}</td>
+              <td>
+                <ion-badge v-if="transaction.nfc_tag_id" color="tertiary">
+                  {{ transaction.nfc_tag_id }}
+                </ion-badge>
+                <span v-else>-</span>
+              </td>
+              <td>{{ tableStore.formatDate(transaction.created_at) }}</td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <!-- Empty State -->
-      <div v-if="tableStore.paginatedItems.length === 0" class="empty-state">
+      <div v-if="!tableStore.isLoading && !tableStore.error && tableStore.transactions.length === 0" class="empty-state">
         <ion-icon :icon="searchOutline" size="large"></ion-icon>
-        <p>No results found</p>
+        <p>No transactions found</p>
         <ion-button size="small" @click="tableStore.resetFilters">Clear Filters</ion-button>
       </div>
 
       <!-- Pagination -->
-      <div class="pagination">
+      <div v-if="!tableStore.isLoading && !tableStore.error && tableStore.transactions.length > 0" class="pagination">
         <ion-button
           fill="clear"
           :disabled="tableStore.currentPage === 1"
@@ -138,7 +174,8 @@
         </ion-button>
         
         <span class="page-info">
-          Page {{ tableStore.currentPage }} of {{ tableStore.totalPages }}
+          Page {{ tableStore.currentPage }} of {{ tableStore.totalPages }} 
+          ({{ tableStore.totalItems }} total items)
         </span>
         
         <ion-button
@@ -151,16 +188,17 @@
       </div>
 
       <!-- Items per page selector -->
-      <div class="items-per-page">
+      <div v-if="!tableStore.isLoading && !tableStore.error && tableStore.transactions.length > 0" class="items-per-page">
         <ion-label>Items per page:</ion-label>
         <ion-select
-          v-model="tableStore.itemsPerPage"
+          :value="tableStore.itemsPerPage"
           interface="popover"
           @ionChange="onItemsPerPageChange"
         >
-          <ion-select-option :value="5">5</ion-select-option>
           <ion-select-option :value="10">10</ion-select-option>
           <ion-select-option :value="15">15</ion-select-option>
+          <ion-select-option :value="25">25</ion-select-option>
+          <ion-select-option :value="50">50</ion-select-option>
         </ion-select>
       </div>
     </ion-content>
@@ -168,7 +206,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   IonPage,
@@ -190,6 +228,7 @@ import {
   IonSelect,
   IonSelectOption,
   IonLabel,
+  IonSpinner,
   toastController,
   alertController
 } from '@ionic/vue';
@@ -206,44 +245,116 @@ import {
 import { useTableStore } from '@/stores/table';
 import { useNfcStore } from '@/stores/nfc';
 import { useAuthStore } from '@/stores/auth';
+import { Capacitor } from '@capacitor/core';
 
 const router = useRouter();
 const tableStore = useTableStore();
 const nfcStore = useNfcStore();
 const authStore = useAuthStore();
+const searchInput = ref('');
 
-// Check if user is authenticated
-onMounted(() => {
-  if (!authStore.isAuthenticated) {
-    router.push('/login');
-    return;
+// Check if user is authenticated and fetch transactions
+onMounted(async () => {
+  if(Capacitor.getPlatform() === 'web') {
+    if (!authStore.isAuthenticated) {
+      router.push('/login');
+      return;
+    }
   }
-  
-  // Check NFC support
-  nfcStore.checkNfcSupport();
+
+  // Fetch transactions
+  await fetchTransactions();
 });
 
-function formatDate(dateString: string) {
-  const date = new Date(dateString);
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  }).format(date);
+// Fetch transactions from API
+async function fetchTransactions() {
+  try {
+    await tableStore.fetchTransactions();
+  } catch (error) {
+    console.error('Error fetching transactions:', error);
+  }
 }
 
+// Format currency
+function formatCurrency(amount: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2
+  }).format(amount);
+}
+
+// Get status color based on status value
+function getStatusColor(status: string) {
+  const statusLower = status.toLowerCase();
+  if (statusLower.includes('complete') || statusLower.includes('success')) {
+    return 'success';
+  } else if (statusLower.includes('pending') || statusLower.includes('process')) {
+    return 'warning';
+  } else if (statusLower.includes('fail') || statusLower.includes('error') || statusLower.includes('cancel')) {
+    return 'danger';
+  }
+  return 'medium';
+}
+
+// Handle sorting
 function sortTable(column: string) {
   tableStore.setSorting(column);
 }
 
+// Handle search
 function onSearchChange() {
-  tableStore.currentPage = 1; // Reset to first page on search
+  tableStore.search(searchInput.value);
 }
 
-function onItemsPerPageChange() {
-  tableStore.currentPage = 1; // Reset to first page when changing items per page
+// Handle items per page change
+function onItemsPerPageChange(event: CustomEvent) {
+  const perPage = event.detail.value;
+  tableStore.setItemsPerPage(perPage);
 }
 
+const tagWriteData = ref('');
+
+// Get color for NFC status badge
+function getNfcStatusColor(status: string) {
+  if (status.includes('enabled') || status.includes('success')) {
+    return 'success';
+  } else if (status.includes('disabled')) {
+    return 'medium';
+  } else if (status.includes('error') || status.includes('not supported')) {
+    return 'danger';
+  } else if (status.includes('scanning') || status.includes('reading')) {
+    return 'warning';
+  }
+  return 'medium';
+}
+
+// Format tag data for display
+function formatTagData(data: any): string {
+  if (!data) return 'No data';
+  
+  try {
+    if (Array.isArray(data)) {
+      return data.map(record => {
+        if (record.recordType === 'text' && record.payload) {
+          return `Text: ${record.payload}`;
+        } else if (record.recordType === 'uri' && record.payload) {
+          return `URI: ${record.payload}`;
+        } else {
+          return JSON.stringify(record, null, 2);
+        }
+      }).join('\n');
+    } else if (typeof data === 'object') {
+      return JSON.stringify(data, null, 2);
+    } else {
+      return String(data);
+    }
+  } catch (e) {
+    return String(data);
+  }
+}
+
+// Toggle NFC
 async function toggleNfc() {
   try {
     if (nfcStore.isNfcEnabled) {
@@ -256,6 +367,19 @@ async function toggleNfc() {
       });
       await toast.present();
     } else {
+      // First initialize NFC
+      const initialized = await nfcStore.initialize();
+      if (!initialized) {
+        const alert = await alertController.create({
+          header: 'NFC Not Supported',
+          message: 'NFC is not supported on this device or is not available.',
+          buttons: ['OK']
+        });
+        await alert.present();
+        return;
+      }
+      
+      // Then enable NFC scanning
       await nfcStore.enableNfc();
       const toast = await toastController.create({
         message: 'NFC enabled - ready to scan',
@@ -265,25 +389,31 @@ async function toggleNfc() {
       });
       await toast.present();
       
-      // For demo purposes, simulate a tag read after enabling
-      setTimeout(async () => {
-        try {
-          await nfcStore.simulateTagRead();
-        } catch (error) {
-          console.error('Error reading tag:', error);
-        }
-      }, 3000);
+      // For web platform, simulate a tag read
+      if (!Capacitor.isNativePlatform()) {
+        setTimeout(async () => {
+          try {
+            await nfcStore.simulateTagRead();
+          } catch (error) {
+            console.error('Error reading tag:', error);
+          }
+        }, 3000);
+      }
     }
   } catch (error) {
+    console.error('NFC error:', error);
     const alert = await alertController.create({
       header: 'NFC Error',
-      message: 'There was an error with the NFC operation. Please try again.',
+      message: `There was an error with the NFC operation: ${error instanceof Error ? error.message : 'Unknown error'}`,
       buttons: ['OK']
     });
     await alert.present();
   }
 }
 
+// Note: Writing to NFC tags is not supported by the @monaca/capacitor-nfc-reader library
+
+// Logout
 async function logout() {
   const alert = await alertController.create({
     header: 'Logout',
@@ -295,9 +425,20 @@ async function logout() {
       },
       {
         text: 'Logout',
-        handler: () => {
-          authStore.logout();
-          router.push('/login');
+        handler: async () => {
+          try {
+            await authStore.logout();
+            router.push('/login');
+          } catch (error) {
+            console.error('Error during logout:', error);
+            const toast = await toastController.create({
+              message: 'Logout failed. Please try again.',
+              duration: 3000,
+              position: 'bottom',
+              color: 'danger'
+            });
+            await toast.present();
+          }
         }
       }
     ]
@@ -380,6 +521,36 @@ async function logout() {
   margin-right: 10px;
 }
 
+/* NFC related styles */
+.tag-data {
+  background-color: var(--ion-color-light);
+  padding: 10px;
+  border-radius: 8px;
+  font-family: monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 8px;
+  font-size: 0.9em;
+}
+
+.write-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ion-color-light);
+}
+
+.loading-state,
+.error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 30px 0;
+  text-align: center;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .data-table th,
@@ -405,6 +576,11 @@ async function logout() {
   .nfc-button-container ion-badge {
     margin-top: 8px;
     margin-left: 0;
+  }
+  
+  .tag-data {
+    max-height: 150px;
+    font-size: 0.8em;
   }
 }
 </style>

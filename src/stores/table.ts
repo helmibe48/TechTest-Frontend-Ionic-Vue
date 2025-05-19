@@ -1,100 +1,166 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref } from 'vue';
+import { useAuthStore } from './auth';
+import axios from 'axios';
 
-export interface TableItem {
+const API_URL = 'http://localhost:61/api';
+
+// Create a custom axios instance for API requests
+const apiAxios = axios.create({
+  baseURL: API_URL,
+  withCredentials: false // Change to false to avoid CORS issues with credentials
+});
+
+export interface Transaction {
   id: number;
-  name: string;
-  email: string;
+  user_id: number;
+  amount: number;
+  transaction_type: string;
   status: string;
-  role: string;
-  createdAt: string;
+  nfc_tag_id?: string;
+  nfc_data?: any;
+  metadata?: any;
+  created_at: string;
+  updated_at: string;
+  user?: {
+    id: number;
+    name: string;
+    email: string;
+  };
+}
+
+export interface ApiResponse {
+  data: {
+    transactions: Transaction[];
+    meta: {
+      total: number;
+      per_page: number;
+      current_page: number;
+      last_page: number;
+    };
+  }
+  message: string;
 }
 
 export const useTableStore = defineStore('table', () => {
-  // Sample data for the table
-  const items = ref<TableItem[]>([
-    { id: 1, name: 'John Doe', email: 'john@example.com', status: 'Active', role: 'Admin', createdAt: '2025-01-15' },
-    { id: 2, name: 'Jane Smith', email: 'jane@example.com', status: 'Inactive', role: 'User', createdAt: '2025-02-20' },
-    { id: 3, name: 'Robert Johnson', email: 'robert@example.com', status: 'Active', role: 'Editor', createdAt: '2025-03-10' },
-    { id: 4, name: 'Emily Davis', email: 'emily@example.com', status: 'Active', role: 'User', createdAt: '2025-03-15' },
-    { id: 5, name: 'Michael Wilson', email: 'michael@example.com', status: 'Inactive', role: 'User', createdAt: '2025-04-01' },
-    { id: 6, name: 'Sarah Brown', email: 'sarah@example.com', status: 'Active', role: 'Admin', createdAt: '2025-04-10' },
-    { id: 7, name: 'David Miller', email: 'david@example.com', status: 'Active', role: 'Editor', createdAt: '2025-04-15' },
-    { id: 8, name: 'Lisa Taylor', email: 'lisa@example.com', status: 'Inactive', role: 'User', createdAt: '2025-04-20' },
-    { id: 9, name: 'James Anderson', email: 'james@example.com', status: 'Active', role: 'User', createdAt: '2025-04-25' },
-    { id: 10, name: 'Jennifer Thomas', email: 'jennifer@example.com', status: 'Active', role: 'Admin', createdAt: '2025-05-01' },
-    { id: 11, name: 'Daniel Jackson', email: 'daniel@example.com', status: 'Inactive', role: 'User', createdAt: '2025-05-05' },
-    { id: 12, name: 'Mary White', email: 'mary@example.com', status: 'Active', role: 'Editor', createdAt: '2025-05-10' },
-    { id: 13, name: 'Kevin Harris', email: 'kevin@example.com', status: 'Active', role: 'User', createdAt: '2025-05-12' },
-    { id: 14, name: 'Laura Martin', email: 'laura@example.com', status: 'Inactive', role: 'User', createdAt: '2025-05-14' },
-    { id: 15, name: 'Steven Thompson', email: 'steven@example.com', status: 'Active', role: 'Admin', createdAt: '2025-05-16' },
-  ]);
-
-  // Pagination
-  const currentPage = ref(1);
-  const itemsPerPage = ref(5);
+  const authStore = useAuthStore();
   
-  // Sorting
-  const sortBy = ref('name');
-  const sortDirection = ref<'asc' | 'desc'>('asc');
+  // Transaction data
+  const transactions = ref<Transaction[]>([]);
+  const isLoading = ref(false);
+  const error = ref('');
+  
+  // Pagination from API
+  const currentPage = ref(1);
+  const itemsPerPage = ref(10);
+  const totalItems = ref(0);
+  const totalPages = ref(0);
+  
+  // Sorting (client-side for now)
+  const sortBy = ref('created_at');
+  const sortDirection = ref<'asc' | 'desc'>('desc');
   
   // Search
   const searchQuery = ref('');
 
-  // Filtered and sorted items
-  const filteredItems = computed(() => {
-    let result = [...items.value];
-    
-    // Apply search filter
-    if (searchQuery.value) {
-      const query = searchQuery.value.toLowerCase();
-      result = result.filter(item => 
-        item.name.toLowerCase().includes(query) ||
-        item.email.toLowerCase().includes(query) ||
-        item.status.toLowerCase().includes(query) ||
-        item.role.toLowerCase().includes(query)
-      );
+  // Fetch transactions from API
+  async function fetchTransactions() {
+    if (!authStore.isAuthenticated || !authStore.token) {
+      error.value = 'Authentication required';
+      return;
     }
     
-    // Apply sorting
-    result.sort((a, b) => {
-      const aValue = a[sortBy.value as keyof TableItem];
-      const bValue = b[sortBy.value as keyof TableItem];
-      
-      if (typeof aValue === 'string' && typeof bValue === 'string') {
-        return sortDirection.value === 'asc' 
-          ? aValue.localeCompare(bValue) 
-          : bValue.localeCompare(aValue);
-      } else if (typeof aValue === 'number' && typeof bValue === 'number') {
-        return sortDirection.value === 'asc' 
-          ? aValue - bValue 
-          : bValue - aValue;
-      }
-      return 0;
-    });
+    isLoading.value = true;
+    error.value = '';
     
-    return result;
-  });
-
-  // Paginated items
-  const paginatedItems = computed(() => {
-    const startIndex = (currentPage.value - 1) * itemsPerPage.value;
-    return filteredItems.value.slice(startIndex, startIndex + itemsPerPage.value);
-  });
-
-  // Total pages
-  const totalPages = computed(() => {
-    return Math.ceil(filteredItems.value.length / itemsPerPage.value);
-  });
-
-  // Change page
-  function setPage(page: number) {
-    if (page > 0 && page <= totalPages.value) {
-      currentPage.value = page;
+    try {
+      // Create a request instance with the auth token
+      const instance = apiAxios;
+      instance.defaults.headers.common['Authorization'] = `Bearer ${authStore.token}`;
+      
+      const response = await instance.get<ApiResponse>('/transactions', {
+        params: {
+          page: currentPage.value,
+          per_page: itemsPerPage.value,
+          search: searchQuery.value || undefined
+        }
+      });
+      
+      console.log('Transactions response:', response.data);
+      
+      transactions.value = response.data.data.transactions;
+      
+      // Update pagination info from API response
+      totalItems.value = response.data.data.meta.total;
+      totalPages.value = response.data.data.meta.last_page;
+      currentPage.value = response.data.data.meta.current_page;
+      
+      // Apply client-side sorting if needed
+      sortTransactions();
+      
+    } catch (err: any) {
+      console.error('Error fetching transactions:', err.response || err);
+      if (err.response && err.response.status === 401) {
+        error.value = 'Authentication expired. Please login again.';
+        authStore.logout();
+      } else if (err.response && err.response.data && err.response.data.message) {
+        error.value = err.response.data.message;
+      } else {
+        error.value = 'Failed to fetch transactions';
+      }
+    } finally {
+      isLoading.value = false;
     }
   }
 
-  // Change sort
+  // Sort transactions (client-side)
+  function sortTransactions() {
+    transactions.value.sort((a, b) => {
+      let aValue: any = a[sortBy.value as keyof Transaction];
+      let bValue: any = b[sortBy.value as keyof Transaction];
+      
+      // Handle nested properties (e.g., user.name)
+      if (sortBy.value === 'user.name') {
+        aValue = a.user?.name || '';
+        bValue = b.user?.name || '';
+      } else if (sortBy.value === 'user.email') {
+        aValue = a.user?.email || '';
+        bValue = b.user?.email || '';
+      }
+      
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return sortDirection.value === 'asc'
+          ? aValue.localeCompare(bValue)
+          : bValue.localeCompare(aValue);
+      } else if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return sortDirection.value === 'asc'
+          ? aValue - bValue
+          : bValue - aValue;
+      } else if (aValue instanceof Date && bValue instanceof Date) {
+        return sortDirection.value === 'asc'
+          ? aValue.getTime() - bValue.getTime()
+          : bValue.getTime() - aValue.getTime();
+      }
+      return 0;
+    });
+  }
+
+  // Change page and fetch new data
+  async function setPage(page: number) {
+    if (page > 0 && page <= totalPages.value) {
+      currentPage.value = page;
+      await fetchTransactions();
+    }
+  }
+
+  // Change items per page and fetch new data
+  async function setItemsPerPage(perPage: number) {
+    itemsPerPage.value = perPage;
+    currentPage.value = 1; // Reset to first page
+    await fetchTransactions();
+  }
+
+  // Change sort and re-fetch or sort client-side
   function setSorting(column: string) {
     if (sortBy.value === column) {
       // Toggle direction if clicking the same column
@@ -104,26 +170,58 @@ export const useTableStore = defineStore('table', () => {
       sortBy.value = column;
       sortDirection.value = 'asc';
     }
+    
+    // For now, we'll just sort client-side
+    sortTransactions();
+    
+    // In a real app with server-side sorting:
+    // fetchTransactions();
   }
 
-  // Reset search and pagination
-  function resetFilters() {
+  // Search and reset to first page
+  async function search(query: string) {
+    searchQuery.value = query;
+    currentPage.value = 1; // Reset to first page
+    await fetchTransactions();
+  }
+
+  // Reset filters and fetch data
+  async function resetFilters() {
     searchQuery.value = '';
     currentPage.value = 1;
+    await fetchTransactions();
+  }
+
+  // Format date for display
+  function formatDate(dateString: string) {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return new Intl.DateTimeFormat('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(date);
   }
 
   return {
-    items,
+    transactions,
+    isLoading,
+    error,
     currentPage,
     itemsPerPage,
+    totalItems,
+    totalPages,
     sortBy,
     sortDirection,
     searchQuery,
-    filteredItems,
-    paginatedItems,
-    totalPages,
+    fetchTransactions,
     setPage,
+    setItemsPerPage,
     setSorting,
-    resetFilters
+    search,
+    resetFilters,
+    formatDate
   };
 });

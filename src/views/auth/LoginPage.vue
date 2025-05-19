@@ -96,7 +96,13 @@ async function handleLogin() {
     await toast.present();
     router.push('/table');
   } catch (err) {
-    // Error is already handled in the store
+    const toast = await toastController.create({
+      message: authStore.error || 'Login failed',
+      duration: 3000,
+      position: 'bottom',
+      color: 'danger'
+    });
+    await toast.present();
   }
 }
 

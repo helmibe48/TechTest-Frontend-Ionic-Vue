@@ -70,7 +70,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   IonPage,
@@ -93,7 +93,6 @@ import {
   toastController,
   IonInputPasswordToggle,
 } from '@ionic/vue';
-import { eyeOutline, eyeOffOutline } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth';
 
 const router = useRouter();
@@ -107,20 +106,21 @@ const passwordError = ref('');
 const isLoading = computed(() => authStore.isLoading);
 const error = computed(() => authStore.error);
 
-const isFormValid = computed(() => {
-  if (password.value !== confirmPassword.value) {
-    passwordError.value = 'Passwords do not match';
-    return false;
-  }
-  
-  if (password.value.length < 6) {
-    passwordError.value = 'Password must be at least 6 characters';
-    return false;
-  }
-  
-  passwordError.value = '';
-  return name.value && email.value && password.value && confirmPassword.value;
-});
+const isFormValid = computed(() => name.value && email.value && password.value && confirmPassword.value && !passwordError.value);
+
+watch(
+  [password, confirmPassword],
+  ([newPassword, newConfirmPassword]) => {
+    if (newPassword !== newConfirmPassword) {
+      passwordError.value = 'Passwords do not match';
+    } else if (newPassword.length < 6) {
+      passwordError.value = 'Password must be at least 6 characters';
+    } else {
+      passwordError.value = '';
+    }
+  },
+  { immediate: true }
+);
 
 async function handleRegister() {
   if (!isFormValid.value) return;
@@ -128,15 +128,21 @@ async function handleRegister() {
   try {
     await authStore.register(name.value, email.value, password.value);
     const toast = await toastController.create({
-      message: 'Registration successful!',
-      duration: 2000,
+      message: 'Registration successful! Please login with your credentials.',
+      duration: 3000,
       position: 'bottom',
       color: 'success'
     });
     await toast.present();
-    router.push('/table');
+    router.push('/login');
   } catch (err) {
-    // Error is already handled in the store
+    const toast = await toastController.create({
+      message: authStore.error || 'Registration failed',
+      duration: 3000,
+      position: 'bottom',
+      color: 'danger'
+    });
+    await toast.present();
   }
 }
 
